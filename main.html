@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>3D Conway's Game of Life - Main</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; }
+        #ui { position: absolute; top: 20px; left: 20px; color: white; font-family: sans-serif; pointer-events: none; }
+        #start-btn { padding: 10px 20px; cursor: pointer; display: none; background: #444; color: white; border: none; font-size: 16px; pointer-events: auto; }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <h2 id="msg">Simulating...</h2>
+        <button id="start-btn">Start Climbing</button>
+    </div>
+    <script type="module">
+        import * as THREE from 'https://cdn.skypack.dev/three@0.136.0';
+        import { OrbitControls } from 'https://cdn.skypack.dev/three@0.136.0/examples/jsm/controls/OrbitControls.js';
+
+        const size = 25;
+        const maxCells = 20000;
+        let grid = Array.from({ length: size }, () => Array.from({ length: size }, () => Math.random() > 0.8 ? 1 : 0));
+        let history = [JSON.stringify(grid)];
+        let generation = 0;
+        let phase = 'simulating'; 
+        let selectedInstanceId = -1;
+        let player = null;
+        let yaw = 0;
+        let camDist = 4;
+        let simulationInterval = null;
+        let dissolveScale = 1.0;
+        let baseLayerIds = [];
+
+        const cellsByLayer = {}; 
+        const cellPositions = [];
+        let cellCount = 0;
+
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: false });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        const geometry = new THREE.BoxGeometry(1, 1, 1);
+        const material = new THREE.MeshStandardMaterial({ color: 0xffffff });
+        const instancedMesh = new THREE.InstancedMesh(geometry, material, maxCells);
+        
+        const colorArray = new Float32Array(maxCells * 3);
+        colorArray.fill(1.0); 
+        instancedMesh.instanceColor = new THREE.InstancedBufferAttribute(colorArray, 3);
+        instancedMesh.count = 0; 
+        scene.add(instancedMesh);
+
+        const orbitControls = new OrbitControls(camera, renderer.domElement);
+        let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false, isMouseDown = false;
+
+        const playerMat = new THREE.MeshBasicMaterial({ color: 0x0000ff });
+        const raycaster = new THREE.Raycaster();
+        
+        let yVelocity = 0;
+        const gravity = -0.005;
+
+        const light = new THREE.DirectionalLight(0xffffff, 1);
+        light.position.set(10, 20, 10);
+        scene.add(light);
+        scene.add(new THREE.AmbientLight(0x404040));
+        camera.position.set(30, 20, 30);
+
+        function updateSimulation() {
+            if (phase !== 'simulating') return;
+            for (let i = 0; i < size; i++) {
+                for (let j = 0; j < size; j++) {
+                    if (grid[i][j] === 1) {
+                        const x = i - size/2;
+                        const z = j - size/2;
+                        const y = generation;
+                        if (cellCount < maxCells) {
+                            const matrix = new THREE.Matrix4().setPosition(x, y, z);
+                            instancedMesh.setMatrixAt(cellCount, matrix);
+                            if (!cellsByLayer[y]) cellsByLayer[y] = [];
+                            cellsByLayer[y].push({x, y, z, id: cellCount});
+                            cellPositions.push({x, y, z});
+                            cellCount++;
+                        }
+                    }
+                }
+            }
+            instancedMesh.count = cellCount; 
+            instancedMesh.instanceMatrix.needsUpdate = true;
+            instancedMesh.instanceColor.needsUpdate = true;
+            
+            let next = Array.from({ length: size }, () => Array(size).fill(0));
+            for (let i = 0; i < size; i++) {
+                for (let j = 0; j < size; j++) {
+                    let sum = 0;
+                    for (let x = -1; x <= 1; x++) {
+                        for (let y = -1; y <= 1; y++) {
+                            if (x === 0 && y === 0) continue;
+                            sum += grid[(i + x + size) % size][(j + y + size) % size];
+                        }
+                    }
+                    if (grid[i][j] === 1) next[i][j] = (sum === 2 || sum === 3) ? 1 : 0;
+                    else next[i][j] = (sum === 3) ? 1 : 0;
+                }
+            }
+
+            if (history.includes(JSON.stringify(next))) {
+                clearInterval(simulationInterval);
+                phase = 'selection';
+                for (let y = 0; y <= 5; y++) {
+                    if (cellsByLayer[y]) {
+                        cellsByLayer[y].forEach(cell => {
+                            baseLayerIds.push(cell.id);
+                        });
+                    }
+                }
+                camera.position.set(0, 10, 20);
+                orbitControls.target.set(0, 5, 0);
+                orbitControls.enabled = true;
+                document.getElementById('msg').innerText = "Click a base cube to spawn:";
+            } else { 
+                grid = next; 
+                history.push(JSON.stringify(next)); 
+                generation++; 
+            }
+        }
+
+        simulationInterval = setInterval(updateSimulation, 40);
+
+        function resetPlayer() {
+            if(selectedInstanceId !== -1) {
+                const dummy = new THREE.Object3D();
+                instancedMesh.getMatrixAt(selectedInstanceId, dummy.matrix);
+                dummy.matrix.decompose(dummy.position, dummy.quaternion, dummy.scale);
+                player.position.set(dummy.position.x, dummy.position.y + 1, dummy.position.z);
+            } else {
+                player.position.set(0, 1, 0);
+            }
+            yVelocity = 0;
+        }
+
+        function spawnPlayer() {
+            phase = 'climbing';
+            document.getElementById('ui').style.display = 'none';
+            orbitControls.enabled = false;
+            orbitControls.dispose();
+            player = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), playerMat);
+            resetPlayer();
+            scene.add(player);
+        }
+
+        document.getElementById('start-btn').addEventListener('click', spawnPlayer);
+        window.addEventListener('mousedown', (e) => { if(e.button === 0) isMouseDown = true; });
+        window.addEventListener('mouseup', (e) => { if(e.button === 0) isMouseDown = false; });
+        window.addEventListener('mousemove', (e) => { if (isMouseDown && phase === 'climbing') yaw -= e.movementX * 0.005; });
+        window.addEventListener('wheel', (e) => { if (phase === 'climbing') { camDist = Math.max(2, Math.min(10, camDist + e.deltaY * 0.01)); } });
+        document.addEventListener('keydown', (e) => { if(e.code === 'KeyW') moveForward = true; if(e.code === 'KeyS') moveBackward = true; if(e.code === 'KeyA') moveLeft = true; if(e.code === 'KeyD') moveRight = true; });
+        document.addEventListener('keyup', (e) => { if(e.code === 'KeyW') moveForward = false; if(e.code === 'KeyS') moveBackward = false; if(e.code === 'KeyA') moveLeft = false; if(e.code === 'KeyD') moveRight = false; });
+
+        function checkCollision(position) {
+            const playerBox = new THREE.Box3().setFromObject(player);
+            playerBox.min.add(position.clone().sub(player.position));
+            playerBox.max.add(position.clone().sub(player.position));
+            playerBox.expandByScalar(-0.01); 
+            const yPos = Math.floor(position.y);
+            for (let y = yPos - 1; y <= yPos + 1; y++) {
+                const layer = cellsByLayer[y];
+                if (layer) {
+                    for (let pos of layer) {
+                        const cellBox = new THREE.Box3(
+                            new THREE.Vector3(pos.x - 0.5, pos.y - 0.5, pos.z - 0.5),
+                            new THREE.Vector3(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5)
+                        );
+                        if (playerBox.intersectsBox(cellBox)) return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            if (phase === 'simulating') {
+                camera.position.y = generation + 5;
+                orbitControls.target.set(0, generation, 0);
+                orbitControls.update();
+            } else if (phase === 'selection') {
+                // Pulsate base layers: White (1,1,1) to Yellow (1,1,0)
+                const pulse = (Math.sin(Date.now() * 0.005) + 1) / 2; 
+                const baseColor = new THREE.Color(1, 1, pulse);
+                const selectColor = new THREE.Color(1, 0, 0);
+                
+                baseLayerIds.forEach(id => {
+                    instancedMesh.setColorAt(id, (id === selectedInstanceId) ? selectColor : baseColor);
+                });
+                instancedMesh.instanceColor.needsUpdate = true;
+                orbitControls.update();
+            } else if (phase === 'climbing') {
+                if (player.position.y > generation) phase = 'victory';
+                if (player.position.y < -5) resetPlayer();
+                
+                const forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw)).normalize();
+                const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw)).normalize();
+                let speed = 0.04; 
+                let moveVector = new THREE.Vector3(0, 0, 0);
+                if (moveForward) moveVector.addScaledVector(forward, -speed);
+                if (moveBackward) moveVector.addScaledVector(forward, speed);
+                if (moveLeft) moveVector.addScaledVector(right, -speed);
+                if (moveRight) moveVector.addScaledVector(right, speed);
+
+                let isHittingWall = checkCollision(player.position.clone().add(moveVector));
+                const isMoving = moveForward || moveBackward || moveLeft || moveRight;
+                yVelocity = (isHittingWall && isMoving) ? 0.06 : yVelocity + gravity;
+                
+                let posX = player.position.clone(); posX.x += moveVector.x;
+                if (!checkCollision(posX)) player.position.x += moveVector.x;
+                let posZ = player.position.clone(); posZ.z += moveVector.z;
+                if (!checkCollision(posZ)) player.position.z += moveVector.z;
+                
+                let nextY = player.position.clone(); nextY.y += yVelocity;
+                if (!checkCollision(nextY)) {
+                    player.position.y += yVelocity;
+                } else if (yVelocity < 0) yVelocity = 0;
+                
+                // Camera Collision Detection
+                const desiredPos = new THREE.Vector3(player.position.x + Math.sin(yaw) * camDist, player.position.y + 2, player.position.z + Math.cos(yaw) * camDist);
+                const dir = new THREE.Vector3().subVectors(desiredPos, player.position).normalize();
+                raycaster.set(player.position, dir);
+                const intersects = raycaster.intersectObject(instancedMesh);
+                let actualDist = camDist;
+                if (intersects.length > 0 && intersects[0].distance < camDist) {
+                    actualDist = Math.max(0.5, intersects[0].distance - 0.2);
+                }
+                camera.position.set(player.position.x + Math.sin(yaw) * actualDist, player.position.y + 2, player.position.z + Math.cos(yaw) * actualDist);
+                camera.lookAt(player.position);
+            } else if (phase === 'victory') {
+                dissolveScale -= 0.02;
+                if (dissolveScale <= 0) {
+                    window.location.href = 'index.html';
+                } else {
+                    const dummy = new THREE.Object3D();
+                    for (let i = 0; i < cellCount; i++) {
+                        instancedMesh.getMatrixAt(i, dummy.matrix);
+                        dummy.scale.set(dissolveScale, dissolveScale, dissolveScale);
+                        instancedMesh.setMatrixAt(i, dummy.matrix);
+                    }
+                    instancedMesh.instanceMatrix.needsUpdate = true;
+                }
+            }
+            renderer.render(scene, camera);
+        }
+        
+        window.addEventListener('click', (e) => {
+            if (phase !== 'selection') return;
+            raycaster.setFromCamera(new THREE.Vector2((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1), camera);
+            const intersects = raycaster.intersectObject(instancedMesh);
+            if (intersects.length > 0) {
+                selectedInstanceId = intersects[0].instanceId;
+                const pos = cellPositions[selectedInstanceId];
+                if (pos && pos.y <= 5) {
+                    document.getElementById('start-btn').style.display = 'block';
+                }
+            }
+        });
+        animate();
+    </script>
+</body>
+</html>
