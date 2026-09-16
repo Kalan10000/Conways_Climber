@@ -45,7 +45,7 @@
     <div id="ui">
         <h2 id="msg">Simulating...</h2>
         <button id="start-btn" class="btn">Start Climbing</button>
-        <button id="menu-btn" class="btn">Back to Menu</button>
+        <button id="restart-btn" class="btn">Play Again</button>
     </div>
     <script type="module">
         import * as THREE from 'https://cdn.skypack.dev/three@0.136.0';
@@ -67,7 +67,6 @@
         let targetCamDist = 5;
         
         let simulationInterval = null;
-        let dissolveScale = 1.0;
         let baseLayerIds = [];
 
         // Confetti System
@@ -211,7 +210,6 @@
                 dummy.updateMatrix();
                 confettiMesh.setMatrixAt(i, dummy.matrix);
                 
-                // Vibrant confetti palette
                 color.setHSL(Math.random(), 0.95, 0.6);
                 confettiMesh.setColorAt(i, color);
                 
@@ -219,7 +217,7 @@
                     pos: new THREE.Vector3(pX, pY, pZ),
                     vel: new THREE.Vector3(
                         (Math.random() - 0.5) * 0.35,
-                        Math.random() * 0.3 + 0.2, // Upward initial burst
+                        Math.random() * 0.3 + 0.2,
                         (Math.random() - 0.5) * 0.35
                     ),
                     rot: new THREE.Vector3(
@@ -244,9 +242,8 @@
             for (let i = 0; i < CONFETTI_COUNT; i++) {
                 const c = confettiData[i];
                 
-                // Flutter physics
-                c.vel.y -= 0.0035; // Light floating gravity
-                c.vel.x *= 0.97;   // Air resistance
+                c.vel.y -= 0.0035;
+                c.vel.x *= 0.97;
                 c.vel.z *= 0.97;
                 
                 c.pos.add(c.vel);
@@ -264,8 +261,8 @@
         }
 
         document.getElementById('start-btn').addEventListener('click', spawnPlayer);
-        document.getElementById('menu-btn').addEventListener('click', () => {
-            window.location.href = 'index.html';
+        document.getElementById('restart-btn').addEventListener('click', () => {
+            window.location.href = 'main.html';
         });
 
         window.addEventListener('mousedown', (e) => { if(e.button === 0) isMouseDown = true; });
@@ -351,7 +348,7 @@
                     initConfetti();
                     document.getElementById('ui').style.display = 'block';
                     document.getElementById('msg').innerText = "🎉 VICTORY! YOU REACHED THE TOP! 🎉";
-                    document.getElementById('menu-btn').style.display = 'inline-block';
+                    document.getElementById('restart-btn').style.display = 'inline-block';
                 }
                 if (player.position.y < -5) resetPlayer();
                 
