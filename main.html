@@ -5,14 +5,47 @@
     <title>3D Conway's Game of Life - Main</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; }
-        #ui { position: absolute; top: 20px; left: 20px; color: white; font-family: sans-serif; pointer-events: none; }
-        #start-btn { padding: 10px 20px; cursor: pointer; display: none; background: #444; color: white; border: none; font-size: 16px; pointer-events: auto; }
+        #ui { 
+            position: absolute; 
+            top: 20px; 
+            left: 50%; 
+            transform: translateX(-50%); 
+            color: white; 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            pointer-events: none; 
+            text-align: center;
+        }
+        #msg {
+            font-size: 28px;
+            margin-bottom: 15px;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.8);
+        }
+        .btn { 
+            padding: 12px 24px; 
+            cursor: pointer; 
+            display: none; 
+            background: rgba(20, 20, 20, 0.85); 
+            color: white; 
+            border: 2px solid #ffffff; 
+            border-radius: 8px;
+            font-size: 18px; 
+            font-weight: bold;
+            pointer-events: auto; 
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+        .btn:hover {
+            background: #ffffff;
+            color: #000000;
+            transform: scale(1.05);
+        }
     </style>
 </head>
 <body>
     <div id="ui">
         <h2 id="msg">Simulating...</h2>
-        <button id="start-btn">Start Climbing</button>
+        <button id="start-btn" class="btn">Start Climbing</button>
+        <button id="menu-btn" class="btn">Back to Menu</button>
     </div>
     <script type="module">
         import * as THREE from 'https://cdn.skypack.dev/three@0.136.0';
@@ -29,13 +62,18 @@
         
         // Dynamic Camera Controls
         let yaw = 0;
-        let pitch = 0.3; // Default pitch angle looking slightly down
+        let pitch = 0.3;
         let camDist = 5;
         let targetCamDist = 5;
         
         let simulationInterval = null;
         let dissolveScale = 1.0;
         let baseLayerIds = [];
+
+        // Confetti System
+        let confettiMesh = null;
+        let confettiData = [];
+        const CONFETTI_COUNT = 400;
 
         const cellsByLayer = {}; 
         const cellPositions = [];
@@ -155,19 +193,92 @@
             scene.add(player);
         }
 
+        function initConfetti() {
+            const geom = new THREE.PlaneGeometry(0.18, 0.18);
+            const mat = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide });
+            confettiMesh = new THREE.InstancedMesh(geom, mat, CONFETTI_COUNT);
+            
+            const color = new THREE.Color();
+            const dummy = new THREE.Object3D();
+            
+            for (let i = 0; i < CONFETTI_COUNT; i++) {
+                const pX = player.position.x + (Math.random() - 0.5) * 3;
+                const pY = player.position.y + Math.random() * 2 + 0.5;
+                const pZ = player.position.z + (Math.random() - 0.5) * 3;
+                
+                dummy.position.set(pX, pY, pZ);
+                dummy.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+                dummy.updateMatrix();
+                confettiMesh.setMatrixAt(i, dummy.matrix);
+                
+                // Vibrant confetti palette
+                color.setHSL(Math.random(), 0.95, 0.6);
+                confettiMesh.setColorAt(i, color);
+                
+                confettiData.push({
+                    pos: new THREE.Vector3(pX, pY, pZ),
+                    vel: new THREE.Vector3(
+                        (Math.random() - 0.5) * 0.35,
+                        Math.random() * 0.3 + 0.2, // Upward initial burst
+                        (Math.random() - 0.5) * 0.35
+                    ),
+                    rot: new THREE.Vector3(
+                        (Math.random() - 0.5) * 0.15,
+                        (Math.random() - 0.5) * 0.15,
+                        (Math.random() - 0.5) * 0.15
+                    ),
+                    rotAngle: new THREE.Vector3(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI),
+                    swayFreq: Math.random() * 0.08 + 0.02,
+                    swayAmp: Math.random() * 0.04 + 0.01
+                });
+            }
+            confettiMesh.instanceMatrix.needsUpdate = true;
+            if (confettiMesh.instanceColor) confettiMesh.instanceColor.needsUpdate = true;
+            scene.add(confettiMesh);
+        }
+
+        function updateConfetti() {
+            if (!confettiMesh) return;
+            const dummy = new THREE.Object3D();
+            
+            for (let i = 0; i < CONFETTI_COUNT; i++) {
+                const c = confettiData[i];
+                
+                // Flutter physics
+                c.vel.y -= 0.0035; // Light floating gravity
+                c.vel.x *= 0.97;   // Air resistance
+                c.vel.z *= 0.97;
+                
+                c.pos.add(c.vel);
+                c.pos.x += Math.sin(Date.now() * 0.003 + i) * c.swayAmp;
+                
+                c.rotAngle.add(c.rot);
+                
+                dummy.position.copy(c.pos);
+                dummy.rotation.set(c.rotAngle.x, c.rotAngle.y, c.rotAngle.z);
+                dummy.updateMatrix();
+                
+                confettiMesh.setMatrixAt(i, dummy.matrix);
+            }
+            confettiMesh.instanceMatrix.needsUpdate = true;
+        }
+
         document.getElementById('start-btn').addEventListener('click', spawnPlayer);
+        document.getElementById('menu-btn').addEventListener('click', () => {
+            window.location.href = 'index.html';
+        });
+
         window.addEventListener('mousedown', (e) => { if(e.button === 0) isMouseDown = true; });
         window.addEventListener('mouseup', (e) => { if(e.button === 0) isMouseDown = false; });
         window.addEventListener('mousemove', (e) => { 
-            if (isMouseDown && phase === 'climbing') {
+            if (isMouseDown && (phase === 'climbing' || phase === 'victory')) {
                 yaw -= e.movementX * 0.005;
-                // Vertical pitch clamping to keep view smooth and prevent flipping
                 pitch = Math.max(-0.3, Math.min(Math.PI / 2.3, pitch + e.movementY * 0.005));
             }
         });
         window.addEventListener('wheel', (e) => { 
-            if (phase === 'climbing') { 
-                targetCamDist = Math.max(1.5, Math.min(12, targetCamDist + e.deltaY * 0.005)); 
+            if (phase === 'climbing' || phase === 'victory') { 
+                targetCamDist = Math.max(1.5, Math.min(15, targetCamDist + e.deltaY * 0.005)); 
             } 
         });
         document.addEventListener('keydown', (e) => { if(e.code === 'KeyW') moveForward = true; if(e.code === 'KeyS') moveBackward = true; if(e.code === 'KeyA') moveLeft = true; if(e.code === 'KeyD') moveRight = true; });
@@ -194,6 +305,30 @@
             return false;
         }
 
+        function updateCamera() {
+            camDist += (targetCamDist - camDist) * 0.1;
+            const targetLookAt = player.position.clone().add(new THREE.Vector3(0, 0.25, 0));
+
+            const cosPitch = Math.cos(pitch);
+            const sinPitch = Math.sin(pitch);
+            const offsetDir = new THREE.Vector3(
+                Math.sin(yaw) * cosPitch,
+                sinPitch,
+                Math.cos(yaw) * cosPitch
+            ).normalize();
+
+            raycaster.set(targetLookAt, offsetDir);
+            const intersects = raycaster.intersectObject(instancedMesh);
+            let actualDist = camDist;
+            if (intersects.length > 0 && intersects[0].distance < camDist) {
+                actualDist = Math.max(0.5, intersects[0].distance - 0.2);
+            }
+
+            const desiredCamPos = targetLookAt.clone().add(offsetDir.multiplyScalar(actualDist));
+            camera.position.lerp(desiredCamPos, 0.15);
+            camera.lookAt(targetLookAt);
+        }
+
         function animate() {
             requestAnimationFrame(animate);
             if (phase === 'simulating') {
@@ -201,7 +336,6 @@
                 orbitControls.target.set(0, generation, 0);
                 orbitControls.update();
             } else if (phase === 'selection') {
-                // Pulsate base layers: White (1,1,1) to Yellow (1,1,0)
                 const pulse = (Math.sin(Date.now() * 0.005) + 1) / 2; 
                 const baseColor = new THREE.Color(1, 1, pulse);
                 const selectColor = new THREE.Color(1, 0, 0);
@@ -212,7 +346,13 @@
                 instancedMesh.instanceColor.needsUpdate = true;
                 orbitControls.update();
             } else if (phase === 'climbing') {
-                if (player.position.y > generation) phase = 'victory';
+                if (player.position.y > generation) {
+                    phase = 'victory';
+                    initConfetti();
+                    document.getElementById('ui').style.display = 'block';
+                    document.getElementById('msg').innerText = "🎉 VICTORY! YOU REACHED THE TOP! 🎉";
+                    document.getElementById('menu-btn').style.display = 'inline-block';
+                }
                 if (player.position.y < -5) resetPlayer();
                 
                 const forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw)).normalize();
@@ -238,44 +378,10 @@
                     player.position.y += yVelocity;
                 } else if (yVelocity < 0) yVelocity = 0;
                 
-                // --- Enhanced Third Person Camera Mechanics ---
-                camDist += (targetCamDist - camDist) * 0.1; // Smooth scroll zoom lerp
-                const targetLookAt = player.position.clone().add(new THREE.Vector3(0, 0.25, 0)); // Target player center/head
-
-                // Calculate spherical offset from yaw & pitch
-                const cosPitch = Math.cos(pitch);
-                const sinPitch = Math.sin(pitch);
-                const offsetDir = new THREE.Vector3(
-                    Math.sin(yaw) * cosPitch,
-                    sinPitch,
-                    Math.cos(yaw) * cosPitch
-                ).normalize();
-
-                // Occlusion & Raycast distance calculation
-                raycaster.set(targetLookAt, offsetDir);
-                const intersects = raycaster.intersectObject(instancedMesh);
-                let actualDist = camDist;
-                if (intersects.length > 0 && intersects[0].distance < camDist) {
-                    actualDist = Math.max(0.5, intersects[0].distance - 0.2);
-                }
-
-                // Smoothly position camera towards calculated target
-                const desiredCamPos = targetLookAt.clone().add(offsetDir.multiplyScalar(actualDist));
-                camera.position.lerp(desiredCamPos, 0.15);
-                camera.lookAt(targetLookAt);
+                updateCamera();
             } else if (phase === 'victory') {
-                dissolveScale -= 0.02;
-                if (dissolveScale <= 0) {
-                    window.location.href = 'index.html';
-                } else {
-                    const dummy = new THREE.Object3D();
-                    for (let i = 0; i < cellCount; i++) {
-                        instancedMesh.getMatrixAt(i, dummy.matrix);
-                        dummy.scale.set(dissolveScale, dissolveScale, dissolveScale);
-                        instancedMesh.setMatrixAt(i, dummy.matrix);
-                    }
-                    instancedMesh.instanceMatrix.needsUpdate = true;
-                }
+                updateConfetti();
+                updateCamera();
             }
             renderer.render(scene, camera);
         }
@@ -288,7 +394,7 @@
                 selectedInstanceId = intersects[0].instanceId;
                 const pos = cellPositions[selectedInstanceId];
                 if (pos && pos.y <= 5) {
-                    document.getElementById('start-btn').style.display = 'block';
+                    document.getElementById('start-btn').style.display = 'inline-block';
                 }
             }
         });
