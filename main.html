@@ -109,6 +109,12 @@
         scene.add(new THREE.AmbientLight(0x404040));
         camera.position.set(30, 20, 30);
 
+        function hasCellAbove(cellPos) {
+            const layerAbove = cellsByLayer[cellPos.y + 1];
+            if (!layerAbove) return false;
+            return layerAbove.some(cell => cell.x === cellPos.x && cell.z === cellPos.z);
+        }
+
         function updateSimulation() {
             if (phase !== 'simulating') return;
             for (let i = 0; i < size; i++) {
@@ -153,14 +159,16 @@
                 for (let y = 0; y <= 5; y++) {
                     if (cellsByLayer[y]) {
                         cellsByLayer[y].forEach(cell => {
-                            baseLayerIds.push(cell.id);
+                            if (!hasCellAbove(cell)) {
+                                baseLayerIds.push(cell.id);
+                            }
                         });
                     }
                 }
                 camera.position.set(0, 10, 20);
                 orbitControls.target.set(0, 5, 0);
                 orbitControls.enabled = true;
-                document.getElementById('msg').innerText = "Click a base cube to spawn:";
+                document.getElementById('msg').innerText = "Click an open base cube to spawn:";
             } else { 
                 grid = next; 
                 history.push(JSON.stringify(next)); 
@@ -388,9 +396,10 @@
             raycaster.setFromCamera(new THREE.Vector2((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1), camera);
             const intersects = raycaster.intersectObject(instancedMesh);
             if (intersects.length > 0) {
-                selectedInstanceId = intersects[0].instanceId;
-                const pos = cellPositions[selectedInstanceId];
-                if (pos && pos.y <= 5) {
+                const clickedId = intersects[0].instanceId;
+                const pos = cellPositions[clickedId];
+                if (pos && pos.y <= 5 && !hasCellAbove(pos)) {
+                    selectedInstanceId = clickedId;
                     document.getElementById('start-btn').style.display = 'inline-block';
                 }
             }
