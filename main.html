@@ -52,7 +52,7 @@
         import { OrbitControls } from 'https://cdn.skypack.dev/three@0.136.0/examples/jsm/controls/OrbitControls.js';
 
         const size = 25;
-        const maxCells = 20000;
+        const maxCells = 100000;
         let grid = Array.from({ length: size }, () => Array.from({ length: size }, () => Math.random() > 0.8 ? 1 : 0));
         let history = [JSON.stringify(grid)];
         let generation = 0;
